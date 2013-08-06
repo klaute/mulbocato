@@ -1,0 +1,4 @@
+video:;youtube;myvideo;vimeo;video;film;film
+mikrocontroller:;mikrocontroller;avr;arm
+mobile:;android;mobile
+programmierung:;java;programmier
