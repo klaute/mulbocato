@@ -143,7 +143,9 @@ open BUZZ, "< $BUZZWORD_FILE" || die "Can't open file: $?";
                 $first = 0;
                 #print "Category ". color("blue"). $e. color("white"). " added with keywords: ";
                 $tc = $tc + 1;
-                print "\rCategories: ". color("yellow"). $tc. color("white"). " Keywords: ". color("yellow"). $tk. color("white"). "      ";
+                print "\rCategories: ". color("yellow"). $tc. color("white")
+				    . " Keywords: ". color("yellow"). $tk. color("white")
+					. "      ";
             } else {
                 # add keyword to category
                 push @twords, $e;
@@ -166,7 +168,6 @@ print color("green"). "Bookmark online test\n";
 print color("white");
 
 my @turl_list;
-my @url_list;
 my $cnt_online  = 0;
 my $cnt_offline = 0;
 my @anim = ( "-", "\\", "|", "/" );
@@ -182,11 +183,13 @@ while ($tend == 0)
         my $url = shift @urls; # first element from array
         if ( defined $url && $url ne "" )
         {
-            #print "\r ". $anim[$i]. " | ". (($#urls+1) - ($#turl_list+1)). " left | processing within ". (threads->list(threads::running)+1). " threads...      ";
+            #print "\r ". $anim[$i]. " | ". (($#urls+1) - ($#turl_list+1))
+			#    . " left | processing within ". (threads->list(threads::running)+1). " threads...      ";
             print "\r ". color("yellow"). $anim[$i]. color("white"). " | ";
             print color("yellow"). ($#turl_list+1). " done ";
             print color("white"). "| processing within ";
-            print color("yellow"). (threads->list(threads::running)+1). " threads". color("white"). "...      ";
+            print color("yellow"). (threads->list(threads::running)+1)
+			      . " threads". color("white"). "...      ";
 
             # create a thread to process the url online test
             # bind it to an temporary variable becaus we can't read
@@ -240,69 +243,75 @@ print color("yellow"). ($#turl_list+1). color("white"). " done\n";
 
 print color("green"). "Processing online test results\n". color("white");
 
-# TODO add multitreading support
-foreach (@turl_list)
+my @url_list;
+$tend = 0;
+
+while ($tend == 0)
 {
-    my $tuh = $_;
-    my %thash = %$tuh;
-    my $url = $thash{"url"};
-    if ( $url ne "" )
-    {
-        print color("blue"). $url. color("white"). " - ";
 
-        my $response = $thash{"response"}; # read webserver results
-
-        if ($response->is_success)
+    if (($#turl_list + 1) >= 1 && threads->list(threads::running) < $THREADS_MAX)
+    { # start a new thread if there are at least one url left
+        my $url = shift @turl_list; # first element from array
+        if ( defined $url && $url ne "" )
         {
-            # url is online
-            print color("green"). $TEXT_ONLINE. color("white"). " - ";
+            #print "\r ". $anim[$i]. " | ". ($#turl_list+1)
+			#    . " left | processing within ". (threads->list(threads::running)+1). " threads...      ";
+            print "\r ". color("yellow"). $anim[$i]. color("white"). " | ";
+            print color("yellow"). ($#turl_list+1). " done ";
+            print color("white"). "| processing within ";
+            print color("yellow"). (threads->list(threads::running)+1)
+			      . " threads". color("white"). "...      ";
 
-            #my %thash = ();
-            #$thash{"url"} = $url;
+            # create a thread to process the url online test
+            # bind it to an temporary variable becaus we can't read
+            # the results of the thread without those binding
+            my $thr = threads->create(\&online_data_processing, $url);
 
-            my $title = $url;
-            my $temp_html = $response->content;
-
-            $thash{"content"} = $temp_html;
-
-            $temp_html =~ s/\n//ig;
-            $temp_html =~ s/\r//ig;
-            if ($temp_html =~ s#.*<title>(.*?)</title>.*#$1#ig) # extract title from content
-            {
-                $temp_html = $1;
-                # TODO nur unsichtbare spaces tabs etc. entfernen
-                $temp_html =~ s/^\s+//;
-                $temp_html =~ s/\s+$//;
-                print "\"". $temp_html. "\"";
-                $title = $temp_html;
-            } else {
-                print color("red"). "title unknown". color("white");
-            }
-            print "\n";
-            $thash{"title"} = $title;
-            $thash{"status"} = $TEXT_ONLINE;
-            my $t = \%thash;
-            push @url_list, $t;
-            $cnt_online = $cnt_online + 1;
-        } else {
-            # url is offline
-            print $response->status_line;
-            print " - ". color("red"). "offline\n". color("white");
-            my %thash = ();
-            $thash{"url"} = $url;
-            $thash{"title"} = $url;
-            $thash{"status"} = $TEXT_OFFLINE;
-            $thash{"content"} = "";
-            my $t = \%thash;
-            push @url_list, $t;
-            $cnt_offline = $cnt_offline + 1;
+            # next animation element
+            $i = $i + 1;
+            $i = 0 if ($i >= 4);
         }
+    }
+
+	if (threads->list() >= $THREADS_MAX || (threads->list() > 0 && ($#turl_list + 1) < $THREADS_MAX))
+    {
+        # if there are at least $THREADS_MAX threads or less than $THREADS_MAX
+        # url's to test and more than zero treads running wait for them
+        my @thr = threads->list();
+
+        foreach my $thrd (@thr)
+        {
+            # is the current thread joinable (finished and ready to read the result)
+            if ($thrd->is_joinable())
+            {
+                my $res = $thrd->join();
+                if (defined $res)
+                { # process threads result
+                    my %thash = %$res;
+                    #print "\n". $thash{"url"}. "\n";
+
+                    my $t = \%thash;
+                    push @url_list, $t;
+                }
+            }
+
+            # it's possible to start another thread...
+        }
+
+    }
+
+    #  abort condition
+    if (($#turl_list + 1) == 0 && threads->list() <= 0)
+    {
+        $tend = 1; # all url's done
     }
 }
 
+print "\r                                                                             \r";
+print color("white"). "done\n";
+
 ########################################### generate categories/keywords for each url #######################################
 
-# TODO add multitreading support
 print color("green"). "Generating keywords\n";
 print color("white");
 
@@ -310,47 +319,71 @@ my $cnt_withcategory = 0;
 my $cnt_withoutcategory = 0;
 my @url_list_categorized;
 
-foreach (@url_list)
+$tend = 0;
+
+while ($tend == 0)
 {
-    my $t = $_;
-    my %thash = %$t;
-    print color("blue"). $thash{"url"}. color("white"). " - ";
-    my $temp_html = $thash{"content"};
-    my $found = 0;
 
-    foreach (@buzzwords)
-    {
-        my $t2 = $_;
-        my %bw = %$t2;
-        my $tw = $bw{"words"};
-        my @w = @$tw;
-        foreach (@w)
+    if (($#url_list + 1) >= 1 && threads->list(threads::running) < $THREADS_MAX)
+    { # start a new thread if there are at least one url left
+        my $url = shift @url_list; # first element from array
+        if ( defined $url && $url ne "" )
         {
-            my $kw = $_;
-            if ($temp_html =~ /\s$kw\s/ig || $thash{"url"} =~ /$kw/) # TODO optimized keyword recognition required
-            {
-                print "Keyword ". color("yellow"). $bw{"category"}. ":$kw". color("white"). " found";
-                $thash{"category"} = $bw{"category"};
-                $found = 1; # skip to next url because just one category per url is allowed
-                $cnt_withcategory = $cnt_withcategory + 1;
-            }
-            last if ($found == 1); # keyword found, abort search
-        }
-        last if ($found == 1); # keyword found, abort category recognition
-    }
-    if ($found == 0)
-    {
-        # no category found
-        $thash{"category"} = $TEXT_UNSORTED;
-        print color("red"). "No keyword". color("white"). " found";
-        $cnt_withoutcategory = $cnt_withoutcategory + 1;
-    }
-    $found = 0 if ($found == 1);
-    my $th = \%thash;
-    push @url_list_categorized, $th; # generate a new list of categorized url's
+            #print "\r ". $anim[$i]. " | ". ($#url_list+1)
+			#    . " left | processing within ". (threads->list(threads::running)+1). " threads...      ";
+            print "\r ". color("yellow"). $anim[$i]. color("white"). " | ";
+            print color("yellow"). ($#url_list+1). " done ";
+            print color("white"). "| processing within ";
+            print color("yellow"). (threads->list(threads::running)+1)
+			      . " threads". color("white"). "...      ";
 
-    print "\n";
+            # create a thread to process the url online test
+            # bind it to an temporary variable becaus we can't read
+            # the results of the thread without those binding
+            my $thr = threads->create(\&categorize, $url);
+
+            # next animation element
+            $i = $i + 1;
+            $i = 0 if ($i >= 4);
+        }
+    }
+
+	if (threads->list() >= $THREADS_MAX || (threads->list() > 0 && ($#url_list + 1) < $THREADS_MAX))
+    {
+        # if there are at least $THREADS_MAX threads or less than $THREADS_MAX
+        # url's to test and more than zero treads running wait for them
+        my @thr = threads->list();
+
+        foreach my $thrd (@thr)
+        {
+            # is the current thread joinable (finished and ready to read the result)
+            if ($thrd->is_joinable())
+            {
+                my $res = $thrd->join();
+                if (defined $res)
+                { # process threads result
+                    my %thash = %$res;
+                    #print "\n". $thash{"url"}. " ". $thash{"category"}. "\n";
+
+                    my $t = \%thash;
+                    push @url_list_categorized, $t;
+                }
+            }
+
+            # it's possible to start another thread...
+        }
+
+    }
+
+    #  abort condition
+    if (($#url_list + 1) == 0 && threads->list() <= 0)
+    {
+        $tend = 1; # all url's done
+    }
 }
+
+print "\r                                                                             \r";
+print color("white"). "done\n";
 
 ########################################### read template files for bookmark output #######################################
 
@@ -387,7 +420,7 @@ open FILE, "< $tplfile" || die "Can't open $tplfile $?";
     }
 close FILE;
 print ".";
-$tplfile = $BOOKMARK_SF_HEAD_FILE;
+$tplfile = $BOOKMARK_SF_FOOT_FILE;
 open FILE, "< $tplfile" || die "Can't open $tplfile $?";
     foreach my $line (<FILE>)
     {
@@ -450,7 +483,7 @@ open FILE, "> $outfile" || die "Can't open $outfile: $?";
                 print FILE $lnk;
             }
         }
-        
+
         print FILE $bk_sf_ft if ($found == 1); # close subfolder if required
     }
     my $found = 0;
@@ -475,7 +508,6 @@ open FILE, "> $outfile" || die "Can't open $outfile: $?";
         }
     }
     print FILE $bk_sf_ft if ($found == 1); # close subfolder if required
-
 
     # build offline url list (unsorted)
     print color("white"). "Add ". color("yellow"). $TEXT_OFFLINE. color("white"). " folder and maybe url's\n";
@@ -530,6 +562,106 @@ sub online_test
     $thash{"url"} = $url;
     my $t = \%thash;
     return $t;
+}
+
+sub online_data_processing
+{
+    my $tuh = shift;
+    my %thash = %$tuh;
+    my $url = $thash{"url"};
+	my $t = "";
+    if ( $url ne "" )
+    {
+        #print color("blue"). $url. color("white"). " - ";
+
+        my $response = $thash{"response"}; # read webserver results
+
+        if ($response->is_success)
+        {
+            # url is online
+            #print color("green"). $TEXT_ONLINE. color("white"). " - ";
+
+            my $title = $url;
+            my $temp_html = $response->content;
+
+            $thash{"content"} = $temp_html;
+
+            $temp_html =~ s/\n//ig;
+            $temp_html =~ s/\r//ig;
+            if ($temp_html =~ s#.*<title>(.*?)</title>.*#$1#ig) # extract title from content
+            {
+                $temp_html = $1;
+                # TODO nur unsichtbare spaces tabs etc. entfernen
+                $temp_html =~ s/^\s+//;
+                $temp_html =~ s/\s+$//;
+                #print "\"". $temp_html. "\"";
+                $title = $temp_html;
+            #} else {
+                #print color("red"). "title unknown". color("white");
+            }
+            #print "\n";
+            $thash{"title"} = $title;
+            $thash{"status"} = $TEXT_ONLINE;
+            $t = \%thash;
+            #push @url_list, $t;
+            #$cnt_online = $cnt_online + 1;
+        } else {
+            # url is offline
+            #print $response->status_line;
+            #print " - ". color("red"). "offline\n". color("white");
+            my %thash = ();
+            $thash{"url"} = $url;
+            $thash{"title"} = $url;
+            $thash{"status"} = $TEXT_OFFLINE;
+            $thash{"content"} = "";
+            $t = \%thash;
+            #push @url_list, $t;
+            #$cnt_offline = $cnt_offline + 1;
+        }
+    }
+	return $t;
+}
+
+sub categorize
+{
+    my $t = shift;
+    my %thash = %$t;
+    #print color("blue"). $thash{"url"}. color("white"). " - ";
+    my $temp_html = $thash{"content"};
+    my $found = 0;
+
+    foreach (@buzzwords)
+    {
+        my $t2 = $_;
+        my %bw = %$t2;
+        my $tw = $bw{"words"};
+        my @w = @$tw;
+        foreach (@w)
+        {
+            my $kw = $_;
+            if ($temp_html =~ /\s$kw\s/ig || $thash{"url"} =~ /$kw/) # TODO optimized keyword recognition required
+            {
+                #print "Keyword ". color("yellow"). $bw{"category"}. ":$kw". color("white"). " found";
+                $thash{"category"} = $bw{"category"};
+                $found = 1; # skip to next url because just one category per url is allowed
+                $cnt_withcategory = $cnt_withcategory + 1;
+            }
+            last if ($found == 1); # keyword found, abort search
+        }
+        last if ($found == 1); # keyword found, abort category recognition
+    }
+    if ($found == 0)
+    {
+        # no category found
+        $thash{"category"} = $TEXT_UNSORTED;
+        #print color("red"). "No keyword". color("white"). " found";
+        $cnt_withoutcategory = $cnt_withoutcategory + 1;
+    }
+    $found = 0 if ($found == 1);
+    my $th = \%thash;
+    return $th; # generate a new list of categorized url's
+
+    print "\n";
 }
 
 ########################################### end subs #######################################
